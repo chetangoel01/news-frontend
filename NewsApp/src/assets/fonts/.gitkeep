@@ -1,0 +1,8 @@
+# This file ensures the fonts directory is tracked in git
+# Add SF Pro fonts here:
+# - SF-Pro-Display-Regular.otf
+# - SF-Pro-Display-Medium.otf
+# - SF-Pro-Display-Bold.otf
+# - SF-Pro-Text-Regular.otf
+# - SF-Pro-Text-Medium.otf
+# - SF-Pro-Text-Bold.otf 
