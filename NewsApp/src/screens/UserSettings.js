@@ -1,15 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  ScrollView, 
+  Alert, 
+  ActivityIndicator,
+  Switch,
+  Dimensions,
+  SafeAreaView,
+  Modal,
+  FlatList,
+  TextInput,
+  Image
+} from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import Icon from 'react-native-vector-icons/Ionicons';
 import articleService from '../services/articleService';
 import authService from '../services/authService';
+import * as ImagePicker from 'expo-image-picker';
+
+const { width } = Dimensions.get('window');
 
 const UserSettings = ({ navigation, onLogout }) => {
-  const { theme, isDarkMode, toggleTheme } = useTheme();
+  const { theme, isDarkMode, themeMode, setThemeMode, THEME_MODES } = useTheme();
   const [cacheStats, setCacheStats] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(false);
+  
+  // Modal states
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [updatingProfile, setUpdatingProfile] = useState(false);
+
+  // Form states
+  const [editForm, setEditForm] = useState({
+    display_name: '',
+    email: '',
+    profile_image: ''
+  });
+  const [passwordForm, setPasswordForm] = useState({
+    current_password: '',
+    new_password: '',
+    confirm_password: ''
+  });
 
   useEffect(() => {
     loadCacheStats();
@@ -29,20 +64,14 @@ const UserSettings = ({ navigation, onLogout }) => {
     try {
       const profile = await authService.getCurrentUser();
       setUserProfile(profile);
+      // Initialize form with current values
+      setEditForm({
+        display_name: profile?.display_name || '',
+        email: profile?.email || '',
+        profile_image: profile?.profile_image || ''
+      });
     } catch (error) {
       console.error('Failed to load user profile:', error);
-    }
-  };
-
-  const handleRefresh = async () => {
-    try {
-      await Promise.all([
-        loadCacheStats(),
-        loadUserProfile()
-      ]);
-      Alert.alert('Success', 'Settings refreshed successfully');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to refresh settings');
     }
   };
 
@@ -58,10 +87,9 @@ const UserSettings = ({ navigation, onLogout }) => {
           onPress: async () => {
             try {
               await articleService.clearCache();
-              await loadCacheStats(); // Reload stats
-              Alert.alert('Success', 'Cache cleared successfully');
+              await loadCacheStats();
             } catch (error) {
-              Alert.alert('Error', 'Failed to clear cache');
+              console.error('Failed to clear cache:', error);
             }
           },
         },
@@ -81,11 +109,9 @@ const UserSettings = ({ navigation, onLogout }) => {
           onPress: async () => {
             setLoading(true);
             try {
-              // Call the onLogout function passed from App.js
               await onLogout();
             } catch (error) {
               console.error('Logout failed:', error);
-              Alert.alert('Error', 'Failed to logout. Please try again.');
             } finally {
               setLoading(false);
             }
@@ -95,37 +121,151 @@ const UserSettings = ({ navigation, onLogout }) => {
     );
   };
 
-  const handleUpdatePreferences = async (newPreferences) => {
-    try {
-      await authService.updatePreferences(newPreferences);
-      await loadUserProfile(); // Reload profile to get updated preferences
-      Alert.alert('Success', 'Preferences updated successfully');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update preferences');
+  const cycleTheme = () => {
+    const themeOrder = [THEME_MODES.LIGHT, THEME_MODES.DARK, THEME_MODES.AUTO];
+    const currentIndex = themeOrder.indexOf(themeMode);
+    const nextIndex = (currentIndex + 1) % themeOrder.length;
+    setThemeMode(themeOrder[nextIndex]);
+  };
+
+  const getThemeDisplayText = () => {
+    switch (themeMode) {
+      case THEME_MODES.LIGHT:
+        return 'Light';
+      case THEME_MODES.DARK:
+        return 'Dark';
+      case THEME_MODES.AUTO:
+        return 'Auto';
+      default:
+        return 'Auto';
     }
   };
 
-  const toggleNotificationSetting = (setting) => {
-    if (!userProfile?.preferences) return;
-    
-    const currentPrefs = userProfile.preferences;
-    const notificationSettings = currentPrefs.notification_settings || {};
-    
-    const updatedPrefs = {
-      ...currentPrefs,
-      notification_settings: {
-        ...notificationSettings,
-        [setting]: !notificationSettings[setting]
-      }
-    };
-    
-    handleUpdatePreferences(updatedPrefs);
+  const getThemeIcon = () => {
+    switch (themeMode) {
+      case THEME_MODES.LIGHT:
+        return 'sunny';
+      case THEME_MODES.DARK:
+        return 'moon';
+      case THEME_MODES.AUTO:
+        return 'settings';
+      default:
+        return 'settings';
+    }
   };
 
-  const renderSettingItem = ({ icon, title, subtitle, onPress, showArrow = true, isDestructive = false }) => (
+  const pickImage = async () => {
+    try {
+      // Request permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant permission to access your photo library.');
+        return;
+      }
+
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        setEditForm(prev => ({ ...prev, profile_image: result.assets[0].uri }));
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const removeImage = () => {
+    setEditForm(prev => ({ ...prev, profile_image: '' }));
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!editForm.display_name.trim()) {
+      Alert.alert('Error', 'Display name cannot be empty');
+      return;
+    }
+
+    if (!editForm.email.trim() || !editForm.email.includes('@')) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    setUpdatingProfile(true);
+    try {
+      await authService.updateProfile({
+        display_name: editForm.display_name.trim(),
+        email: editForm.email.trim(),
+        profile_image: editForm.profile_image
+      });
+      await loadUserProfile();
+      setShowEditProfileModal(false);
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to update profile');
+    } finally {
+      setUpdatingProfile(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordForm.current_password.trim()) {
+      Alert.alert('Error', 'Please enter your current password');
+      return;
+    }
+
+    if (!passwordForm.new_password.trim() || passwordForm.new_password.length < 6) {
+      Alert.alert('Error', 'New password must be at least 6 characters long');
+      return;
+    }
+
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      Alert.alert('Error', 'New passwords do not match');
+      return;
+    }
+
+    setUpdatingProfile(true);
+    try {
+      await authService.changePassword({
+        current_password: passwordForm.current_password,
+        new_password: passwordForm.new_password
+      });
+      setShowChangePasswordModal(false);
+      setPasswordForm({
+        current_password: '',
+        new_password: '',
+        confirm_password: ''
+      });
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to change password');
+    } finally {
+      setUpdatingProfile(false);
+    }
+  };
+
+  const renderSettingItem = ({ 
+    icon, 
+    title, 
+    subtitle, 
+    onPress, 
+    showArrow = true, 
+    isDestructive = false,
+    badge,
+    disabled = false 
+  }) => (
     <TouchableOpacity
-      style={[styles.settingItem, { backgroundColor: theme.cardBackground }]}
+      style={[
+        styles.settingItem, 
+        { 
+          backgroundColor: theme.cardBackground,
+          opacity: disabled ? 0.6 : 1
+        }
+      ]}
       onPress={onPress}
+      disabled={disabled}
     >
       <View style={styles.settingLeft}>
         <Icon 
@@ -135,7 +275,10 @@ const UserSettings = ({ navigation, onLogout }) => {
           style={styles.settingIcon} 
         />
         <View style={styles.settingText}>
-          <Text style={[styles.settingTitle, { color: isDestructive ? theme.error : theme.text }]}>
+          <Text style={[
+            styles.settingTitle, 
+            { color: isDestructive ? theme.error : theme.text }
+          ]}>
             {title}
           </Text>
           {subtitle && (
@@ -145,14 +288,36 @@ const UserSettings = ({ navigation, onLogout }) => {
           )}
         </View>
       </View>
-      {showArrow && <Icon name="chevron-forward" size={20} color={theme.textSecondary} />}
+      <View style={styles.settingRight}>
+        {badge && (
+          <View style={[styles.badge, { backgroundColor: theme.primary }]}>
+            <Text style={styles.badgeText}>{badge}</Text>
+          </View>
+        )}
+        {showArrow && <Icon name="chevron-forward" size={20} color={theme.textSecondary} />}
+      </View>
     </TouchableOpacity>
   );
 
-  const renderToggleItem = ({ icon, title, subtitle, value, onToggle, isDestructive = false }) => (
+  const renderToggleItem = ({ 
+    icon, 
+    title, 
+    subtitle, 
+    value, 
+    onToggle, 
+    isDestructive = false,
+    disabled = false 
+  }) => (
     <TouchableOpacity
-      style={[styles.settingItem, { backgroundColor: theme.cardBackground }]}
+      style={[
+        styles.settingItem, 
+        { 
+          backgroundColor: theme.cardBackground,
+          opacity: disabled ? 0.6 : 1
+        }
+      ]}
       onPress={onToggle}
+      disabled={disabled}
     >
       <View style={styles.settingLeft}>
         <Icon 
@@ -162,7 +327,10 @@ const UserSettings = ({ navigation, onLogout }) => {
           style={styles.settingIcon} 
         />
         <View style={styles.settingText}>
-          <Text style={[styles.settingTitle, { color: isDestructive ? theme.error : theme.text }]}>
+          <Text style={[
+            styles.settingTitle, 
+            { color: isDestructive ? theme.error : theme.text }
+          ]}>
             {title}
           </Text>
           {subtitle && (
@@ -172,267 +340,371 @@ const UserSettings = ({ navigation, onLogout }) => {
           )}
         </View>
       </View>
-      <View style={[styles.toggleContainer, { backgroundColor: value ? theme.primary : theme.border }]}>
-        <View style={[styles.toggleThumb, { backgroundColor: 'white', transform: [{ translateX: value ? 20 : 0 }] }]} />
-      </View>
+      <Switch
+        value={value}
+        onValueChange={onToggle}
+        trackColor={{ false: theme.border, true: theme.primary }}
+        thumbColor={value ? '#FFFFFF' : '#FFFFFF'}
+        disabled={disabled}
+      />
     </TouchableOpacity>
+  );
+
+  const renderEditProfileModal = () => (
+    <Modal
+      visible={showEditProfileModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowEditProfileModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Edit Profile</Text>
+            <TouchableOpacity onPress={() => setShowEditProfileModal(false)} style={styles.modalCloseButton}>
+              <Icon name="close" size={24} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.formContainer}>
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Display Name</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: theme.cardBackground,
+                  color: theme.text,
+                  borderColor: theme.border
+                }]}
+                value={editForm.display_name}
+                onChangeText={(text) => setEditForm(prev => ({ ...prev, display_name: text }))}
+                placeholder="Enter your display name"
+                placeholderTextColor={theme.textSecondary}
+              />
+            </View>
+            
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Email</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: theme.cardBackground,
+                  color: theme.text,
+                  borderColor: theme.border
+                }]}
+                value={editForm.email}
+                onChangeText={(text) => setEditForm(prev => ({ ...prev, email: text }))}
+                placeholder="Enter your email"
+                placeholderTextColor={theme.textSecondary}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+            </View>
+            
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Profile Image</Text>
+              <View style={styles.imageSection}>
+                {editForm.profile_image ? (
+                  <View style={styles.imageContainer}>
+                    <Image 
+                      source={{ uri: editForm.profile_image }} 
+                      style={styles.profileImage} 
+                    />
+                    <TouchableOpacity 
+                      style={styles.removeImageButton}
+                      onPress={removeImage}
+                    >
+                      <Icon name="close-circle" size={20} color={theme.error} />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity 
+                    style={[styles.addImageButton, { 
+                      backgroundColor: theme.cardBackground,
+                      borderColor: theme.border 
+                    }]}
+                    onPress={pickImage}
+                  >
+                    <Icon name="camera" size={24} color={theme.primary} />
+                    <Text style={[styles.addImageText, { color: theme.textSecondary }]}>
+                      Add Photo
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+          
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalButton, { backgroundColor: theme.primary }]}
+              onPress={handleUpdateProfile}
+              disabled={updatingProfile}
+            >
+              {updatingProfile ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text style={styles.modalButtonText}>Save Changes</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderChangePasswordModal = () => (
+    <Modal
+      visible={showChangePasswordModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowChangePasswordModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Change Password</Text>
+            <TouchableOpacity onPress={() => setShowChangePasswordModal(false)} style={styles.modalCloseButton}>
+              <Icon name="close" size={24} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.formContainer}>
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Current Password</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: theme.cardBackground,
+                  color: theme.text,
+                  borderColor: theme.border
+                }]}
+                value={passwordForm.current_password}
+                onChangeText={(text) => setPasswordForm(prev => ({ ...prev, current_password: text }))}
+                placeholder="Enter current password"
+                placeholderTextColor={theme.textSecondary}
+                secureTextEntry
+              />
+            </View>
+            
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>New Password</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: theme.cardBackground,
+                  color: theme.text,
+                  borderColor: theme.border
+                }]}
+                value={passwordForm.new_password}
+                onChangeText={(text) => setPasswordForm(prev => ({ ...prev, new_password: text }))}
+                placeholder="Enter new password"
+                placeholderTextColor={theme.textSecondary}
+                secureTextEntry
+              />
+            </View>
+            
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Confirm New Password</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: theme.cardBackground,
+                  color: theme.text,
+                  borderColor: theme.border
+                }]}
+                value={passwordForm.confirm_password}
+                onChangeText={(text) => setPasswordForm(prev => ({ ...prev, confirm_password: text }))}
+                placeholder="Confirm new password"
+                placeholderTextColor={theme.textSecondary}
+                secureTextEntry
+              />
+            </View>
+          </View>
+          
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalButton, { backgroundColor: theme.primary }]}
+              onPress={handleChangePassword}
+              disabled={updatingProfile}
+            >
+              {updatingProfile ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text style={styles.modalButtonText}>Change Password</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.background }]}>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Settings</Text>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* User Profile */}
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* User Profile Card */}
         {userProfile && (
-          <>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Account</Text>
-            <View style={[styles.profileCard, { backgroundColor: theme.cardBackground }]}>
-              <View style={styles.profileInfo}>
+          <View style={[styles.profileCard, { backgroundColor: theme.cardBackground }]}>
+            <View style={styles.profileInfo}>
+              {userProfile.profile_image ? (
+                <Image 
+                  source={{ uri: userProfile.profile_image }} 
+                  style={styles.profileAvatar} 
+                />
+              ) : (
                 <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
                   <Text style={styles.avatarText}>
-                    {userProfile.display_name?.charAt(0)?.toUpperCase() || userProfile.username?.charAt(0)?.toUpperCase() || 'U'}
+                    {userProfile.display_name?.charAt(0)?.toUpperCase() || 
+                     userProfile.username?.charAt(0)?.toUpperCase() || 'U'}
                   </Text>
                 </View>
-                <View style={styles.profileDetails}>
-                  <Text style={[styles.profileName, { color: theme.text }]}>
-                    {userProfile.display_name || userProfile.username}
-                  </Text>
-                  <Text style={[styles.profileEmail, { color: theme.textSecondary }]}>
-                    {userProfile.email}
-                  </Text>
-                  {userProfile.articles_read && (
-                    <Text style={[styles.profileStats, { color: theme.textSecondary }]}>
-                      {userProfile.articles_read} articles read
-                    </Text>
-                  )}
-                </View>
-              </View>
-            </View>
-          </>
-        )}
-
-        {/* Appearance */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Appearance</Text>
-        {renderSettingItem({
-          icon: isDarkMode ? 'moon' : 'sunny',
-          title: 'Theme',
-          subtitle: isDarkMode ? 'Dark Mode' : 'Light Mode',
-          onPress: toggleTheme,
-          showArrow: false,
-        })}
-
-        {/* Notifications */}
-        {userProfile?.preferences?.notification_settings && (
-          <>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Notifications</Text>
-            {renderToggleItem({
-              icon: 'notifications-outline',
-              title: 'Push Notifications',
-              subtitle: 'Receive notifications on your device',
-              value: userProfile.preferences.notification_settings.push_enabled,
-              onToggle: () => toggleNotificationSetting('push_enabled'),
-            })}
-            {renderToggleItem({
-              icon: 'mail-outline',
-              title: 'Email Digest',
-              subtitle: 'Daily summary of top stories',
-              value: userProfile.preferences.notification_settings.email_digest,
-              onToggle: () => toggleNotificationSetting('email_digest'),
-            })}
-            {renderToggleItem({
-              icon: 'flash-outline',
-              title: 'Breaking News',
-              subtitle: 'Immediate alerts for important news',
-              value: userProfile.preferences.notification_settings.breaking_news,
-              onToggle: () => toggleNotificationSetting('breaking_news'),
-            })}
-          </>
-        )}
-
-        {/* Content Preferences */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Content Preferences</Text>
-        
-        {/* Content Type */}
-        <View style={[styles.settingItem, { backgroundColor: theme.cardBackground }]}>
-          <View style={styles.settingLeft}>
-            <Icon name="newspaper-outline" size={24} color={theme.primary} style={styles.settingIcon} />
-            <View style={styles.settingText}>
-              <Text style={[styles.settingTitle, { color: theme.text }]}>Content Type</Text>
-              <Text style={[styles.settingSubtitle, { color: theme.textSecondary }]}>
-                {userProfile?.preferences?.content_type === 'articles' ? 'Articles only' :
-                 userProfile?.preferences?.content_type === 'videos' ? 'Videos only' : 'Mixed content'}
-              </Text>
-            </View>
-          </View>
-          <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
-        </View>
-
-        {/* Language */}
-        <View style={[styles.settingItem, { backgroundColor: theme.cardBackground }]}>
-          <View style={styles.settingLeft}>
-            <Icon name="language-outline" size={24} color={theme.primary} style={styles.settingIcon} />
-            <View style={styles.settingText}>
-              <Text style={[styles.settingTitle, { color: theme.text }]}>Language</Text>
-              <Text style={[styles.settingSubtitle, { color: theme.textSecondary }]}>
-                {userProfile?.preferences?.language === 'en' ? 'English' :
-                 userProfile?.preferences?.language === 'es' ? 'Spanish' :
-                 userProfile?.preferences?.language === 'fr' ? 'French' :
-                 userProfile?.preferences?.language || 'English'}
-              </Text>
-            </View>
-          </View>
-          <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
-        </View>
-
-        {/* Categories */}
-        {userProfile?.preferences?.categories && (
-          <View style={[styles.settingItem, { backgroundColor: theme.cardBackground }]}>
-            <View style={styles.settingLeft}>
-              <Icon name="list-outline" size={24} color={theme.primary} style={styles.settingIcon} />
-              <View style={styles.settingText}>
-                <Text style={[styles.settingTitle, { color: theme.text }]}>Categories</Text>
-                <Text style={[styles.settingSubtitle, { color: theme.textSecondary }]}>
-                  {userProfile.preferences.categories.length} selected
+              )}
+              <View style={styles.profileDetails}>
+                <Text style={[styles.profileName, { color: theme.text }]}>
+                  {userProfile.display_name || userProfile.username}
                 </Text>
-              </View>
-            </View>
-            <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
-          </View>
-        )}
-
-        {/* Cache Management */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Storage</Text>
-        {cacheStats && (
-          <View style={[styles.cacheStats, { backgroundColor: theme.cardBackground }]}>
-            <Text style={[styles.cacheStatsTitle, { color: theme.text }]}>Cache Statistics</Text>
-            <View style={styles.cacheStatsGrid}>
-              <View style={styles.cacheStatItem}>
-                <Text style={[styles.cacheStatNumber, { color: theme.primary }]}>{cacheStats.feeds}</Text>
-                <Text style={[styles.cacheStatLabel, { color: theme.textSecondary }]}>Feeds</Text>
-              </View>
-              <View style={styles.cacheStatItem}>
-                <Text style={[styles.cacheStatNumber, { color: theme.primary }]}>{cacheStats.articles}</Text>
-                <Text style={[styles.cacheStatLabel, { color: theme.textSecondary }]}>Articles</Text>
-              </View>
-              <View style={styles.cacheStatItem}>
-                <Text style={[styles.cacheStatNumber, { color: theme.primary }]}>{cacheStats.bookmarks}</Text>
-                <Text style={[styles.cacheStatLabel, { color: theme.textSecondary }]}>Bookmarks</Text>
+                <Text style={[styles.profileEmail, { color: theme.textSecondary }]}>
+                  {userProfile.email}
+                </Text>
+                {userProfile.articles_read && (
+                  <Text style={[styles.profileStats, { color: theme.textSecondary }]}>
+                    {userProfile.articles_read} articles read
+                  </Text>
+                )}
               </View>
             </View>
           </View>
         )}
-        
-        {renderSettingItem({
-          icon: 'refresh-outline',
-          title: 'Refresh Settings',
-          subtitle: 'Manually refresh profile and cache',
-          onPress: handleRefresh,
-        })}
 
-        {renderSettingItem({
-          icon: 'trash-outline',
-          title: 'Clear Cache',
-          subtitle: 'Free up storage space',
-          onPress: handleClearCache,
-        })}
+        {/* Quick Actions */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity 
+            style={[styles.quickAction, { backgroundColor: theme.cardBackground }]}
+            onPress={cycleTheme}
+          >
+            <Icon 
+              name={getThemeIcon()} 
+              size={24} 
+              color={theme.primary} 
+            />
+            <Text style={[styles.quickActionText, { color: theme.text }]}>
+              {getThemeDisplayText()}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.quickAction, { backgroundColor: theme.cardBackground }]}
+            onPress={() => navigation.navigate('Bookmarks')}
+          >
+            <Icon name="bookmark" size={24} color={theme.primary} />
+            <Text style={[styles.quickActionText, { color: theme.text }]}>
+              Bookmarks
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.quickAction, { backgroundColor: theme.cardBackground }]}
+            onPress={() => navigation.navigate('Discover')}
+          >
+            <Icon name="compass" size={24} color={theme.primary} />
+            <Text style={[styles.quickActionText, { color: theme.text }]}>
+              Discover
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* About */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>About</Text>
-        {renderSettingItem({
-          icon: 'information-circle-outline',
-          title: 'Version',
-          subtitle: '1.0.0',
-          onPress: () => {},
-        })}
+        {/* Profile Section */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Profile Settings</Text>
+          
+          {renderSettingItem({
+            icon: 'person-outline',
+            title: 'Edit Profile',
+            subtitle: 'Update your name and email',
+            onPress: () => setShowEditProfileModal(true),
+          })}
+          
+          {renderSettingItem({
+            icon: 'lock-closed-outline',
+            title: 'Change Password',
+            subtitle: 'Update your password',
+            onPress: () => setShowChangePasswordModal(true),
+          })}
+        </View>
 
-        {/* Data Usage */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Data & Privacy</Text>
-        {renderSettingItem({
-          icon: 'shield-checkmark-outline',
-          title: 'Privacy Policy',
-          subtitle: 'How we protect your data',
-          onPress: () => {
-            Alert.alert('Privacy Policy', 'Our privacy policy ensures your data is protected and never shared with third parties.');
-          },
-        })}
-        
-        {renderSettingItem({
-          icon: 'document-text-outline',
-          title: 'Terms of Service',
-          subtitle: 'App usage terms and conditions',
-          onPress: () => {
-            Alert.alert('Terms of Service', 'By using this app, you agree to our terms of service and community guidelines.');
-          },
-        })}
+        {/* Storage Section */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Storage</Text>
+          
+          {renderSettingItem({
+            icon: 'trash-outline',
+            title: 'Clear Cache',
+            subtitle: 'Free up storage space',
+            onPress: handleClearCache,
+          })}
+        </View>
 
-        {renderSettingItem({
-          icon: 'analytics-outline',
-          title: 'Data Usage',
-          subtitle: 'Manage your data preferences',
-          onPress: () => {
-            Alert.alert('Data Usage', 'This app uses local processing for recommendations to protect your privacy. No personal data is sent to our servers.');
-          },
-        })}
+        {/* About Section */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>About</Text>
+          
+          {renderSettingItem({
+            icon: 'information-circle-outline',
+            title: 'Version',
+            subtitle: '1.0.0',
+            onPress: () => {},
+            showArrow: false,
+          })}
+          
+          {renderSettingItem({
+            icon: 'help-circle-outline',
+            title: 'Help & Support',
+            subtitle: 'Get help and contact support',
+            onPress: () => {},
+          })}
+          
+          {renderSettingItem({
+            icon: 'star-outline',
+            title: 'Rate App',
+            subtitle: 'Rate us on the App Store',
+            onPress: () => {},
+          })}
+        </View>
 
-        {/* Account Actions */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Account</Text>
-        {renderSettingItem({
-          icon: 'person-outline',
-          title: 'Edit Profile',
-          subtitle: 'Update your personal information',
-          onPress: () => {
-            // TODO: Navigate to profile edit screen
-            Alert.alert('Coming Soon', 'Profile editing will be available in the next update');
-          },
-        })}
-        
-        {renderSettingItem({
-          icon: 'shield-outline',
-          title: 'Privacy & Security',
-          subtitle: 'Manage your privacy settings',
-          onPress: () => {
-            // TODO: Navigate to privacy settings screen
-            Alert.alert('Coming Soon', 'Privacy settings will be available in the next update');
-          },
-        })}
-
-        {/* Logout */}
+        {/* Logout Section */}
         <View style={styles.logoutContainer}>
           <TouchableOpacity
-            style={[styles.settingItem, { backgroundColor: theme.cardBackground }]}
+            style={[styles.logoutButton, { backgroundColor: theme.error }]}
             onPress={handleLogout}
             disabled={loading}
           >
-            <View style={styles.settingLeft}>
-              <Icon 
-                name="log-out-outline" 
-                size={24} 
-                color={theme.error} 
-                style={styles.settingIcon} 
-              />
-              <View style={styles.settingText}>
-                <Text style={[styles.settingTitle, { color: theme.error }]}>
-                  {loading ? 'Logging out...' : 'Logout'}
-                </Text>
-                <Text style={[styles.settingSubtitle, { color: theme.textSecondary }]}>
-                  Sign out of your account
-                </Text>
-              </View>
-            </View>
-            {loading ? (
-              <View style={styles.loadingSpinner}>
-                <ActivityIndicator size="small" color={theme.error} />
-              </View>
-            ) : (
-              <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
+            <Icon 
+              name="log-out-outline" 
+              size={20} 
+              color="white" 
+              style={styles.logoutIcon} 
+            />
+            <Text style={styles.logoutText}>
+              {loading ? 'Logging out...' : 'Logout'}
+            </Text>
+            {loading && (
+              <ActivityIndicator size="small" color="white" style={styles.logoutSpinner} />
             )}
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+
+      {/* Edit Profile Modal */}
+      {renderEditProfileModal()}
+
+      {/* Change Password Modal */}
+      {renderChangePasswordModal()}
+    </SafeAreaView>
   );
 };
 
@@ -441,7 +713,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingTop: 50,
+    paddingTop: 10,
     paddingBottom: 10,
     alignItems: 'center',
   },
@@ -453,36 +725,39 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 20,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 15,
-    marginTop: 20,
-    textTransform: 'uppercase',
-    fontFamily: 'Inter-SemiBold',
+  scrollContent: {
+    paddingBottom: 60,
   },
   profileCard: {
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 10,
+    borderRadius: 15,
+    padding: 24,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   profileInfo: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 15,
   },
+  profileAvatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    marginRight: 15,
+  },
   avatarText: {
     color: 'white',
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: 'bold',
     fontFamily: 'Inter-Bold',
   },
@@ -490,10 +765,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profileName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
     fontFamily: 'Inter-SemiBold',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   profileEmail: {
     fontSize: 14,
@@ -504,13 +779,54 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Inter-Regular',
   },
+  editProfileButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  editProfileText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+  },
+  quickActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  quickAction: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginHorizontal: 4,
+  },
+  quickActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+    marginTop: 4,
+  },
+  section: {
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    fontFamily: 'Inter-SemiBold',
+    letterSpacing: 0.5,
+  },
   settingItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 15,
-    borderRadius: 10,
-    marginBottom: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 6,
   },
   settingLeft: {
     flexDirection: 'row',
@@ -526,57 +842,154 @@ const styles = StyleSheet.create({
   settingTitle: {
     fontSize: 16,
     fontFamily: 'Inter-Regular',
+    marginBottom: 2,
   },
   settingSubtitle: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
   },
-  toggleContainer: {
-    width: 44,
-    height: 24,
-    borderRadius: 12,
-    padding: 2,
-  },
-  toggleThumb: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-  },
-  cacheStats: {
-    borderRadius: 10,
-    padding: 15,
-    marginTop: 15,
-    marginBottom: 15,
-  },
-  cacheStatsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 10,
-    fontFamily: 'Inter-SemiBold',
-  },
-  cacheStatsGrid: {
+  settingRight: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  cacheStatItem: {
     alignItems: 'center',
   },
-  cacheStatNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    fontFamily: 'Inter-Bold',
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginRight: 8,
   },
-  cacheStatLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
+  badgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
   },
   logoutContainer: {
     marginTop: 20,
+    marginBottom: 20,
   },
-  loadingSpinner: {
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  logoutIcon: {
+    marginRight: 8,
+  },
+  logoutText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+  },
+  logoutSpinner: {
+    marginLeft: 8,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    fontFamily: 'Inter-Bold',
+  },
+  modalCloseButton: {
+    padding: 8,
+  },
+  formContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+    marginBottom: 8,
+  },
+  textInput: {
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+  },
+  modalActions: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  modalButton: {
+    height: 50,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+  },
+  // Profile image styles
+  imageSection: {
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  imageContainer: {
+    position: 'relative',
+    alignItems: 'center',
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  removeImageButton: {
     position: 'absolute',
-    right: 15,
-    top: 15,
+    top: -5,
+    right: -5,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 2,
+  },
+  addImageButton: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addImageText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    marginTop: 4,
   },
 });
 

@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, TextInput, SafeAreaVie
 import { useTheme } from '../context/ThemeContext';
 import authService from '../services/authService';
 
-const UserProfileScreen = ({ route, navigation }) => {
+const UserProfileScreen = ({ route, navigation, onLogin }) => {
   const { theme } = useTheme();
   const styles = getStyles(theme);
   const { email, password, username, display_name } = route.params;
@@ -55,7 +55,21 @@ const UserProfileScreen = ({ route, navigation }) => {
           }
         }
       });
-      // Don't navigate manually - let the authentication state change handle navigation
+      
+      // Show success message and automatically log the user in
+      Alert.alert(
+        'Registration Successful!', 
+        'Welcome to NewsApp! You have been automatically logged in.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Trigger the login state change which will update the navigation
+              onLogin();
+            }
+          }
+        ]
+      );
     } catch (error) {
       Alert.alert('Registration Error', error.message || 'An unexpected error occurred.');
     } finally {
