@@ -56,20 +56,8 @@ const UserProfileScreen = ({ route, navigation, onLogin }) => {
         }
       });
       
-      // Show success message and automatically log the user in
-      Alert.alert(
-        'Registration Successful!', 
-        'Welcome to NewsApp! You have been automatically logged in.',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Trigger the login state change which will update the navigation
-              onLogin();
-            }
-          }
-        ]
-      );
+      // Automatically log the user in and go to home screen
+      onLogin();
     } catch (error) {
       Alert.alert('Registration Error', error.message || 'An unexpected error occurred.');
     } finally {

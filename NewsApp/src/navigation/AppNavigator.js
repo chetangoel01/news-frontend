@@ -82,7 +82,9 @@ const AppNavigator = ({ isAuthenticated, handleLogin, handleLogout, isLoading })
           <Stack.Screen name="Auth">
             {(props) => <AuthScreen {...props} onLogin={handleLogin} />}
           </Stack.Screen>
-          <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+          <Stack.Screen name="UserProfile">
+            {(props) => <UserProfileScreen {...props} onLogin={handleLogin} />}
+          </Stack.Screen>
         </>
       )}
   </Stack.Navigator>
