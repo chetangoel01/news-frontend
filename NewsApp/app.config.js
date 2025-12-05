@@ -18,7 +18,11 @@ export default {
     },
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.newsapp.app"
+      bundleIdentifier: "com.chetan01.newsapp",
+      buildNumber: "1",
+      infoPlist: {
+        ITSAppUsesNonExemptEncryption: false
+      }
     },
     android: {
       adaptiveIcon: {
@@ -26,17 +30,26 @@ export default {
         backgroundColor: "#ffffff"
       },
       edgeToEdgeEnabled: true,
-      package: "com.newsapp.app"
+      package: "com.chetan01.newsapp"
     },
     web: {
       favicon: "./assets/favicon.png"
     },
     entryPoint: "./index.js",
+    plugins: [
+      "expo-secure-store",
+      "expo-image-picker"
+    ],
     extra: {
-      // Supabase configuration
-      // These can be overridden by environment variables
-      supabaseUrl: process.env.SUPABASE_URL || "https://fdtupnezbxurutavplfh.supabase.co",
-      supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "YOUR_SUPABASE_ANON_KEY",
+      // EAS project configuration
+      eas: {
+        projectId: "598fb8dc-901d-4210-9ad6-239aa6286f92"
+      },
+      // Supabase configuration - will be populated from environment variables
+      supabaseUrl: process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+      // API configuration - will be populated from environment variables
+      apiUrl: process.env.API_URL || 'https://newsapp.dragonchetan.com',
     },
   },
 }; 
