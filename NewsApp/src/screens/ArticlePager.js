@@ -224,11 +224,37 @@ export default function ArticlePager() {
     // Track the article that was swiped
     if (articles[index]) {
       const article = articles[index];
+      
+      // Map swipe directions to allowed interaction types
+      let interactionType = 'view'; // Default to view
+      let interactionStrength = 0.05; // Default low strength
+      
+      switch (direction) {
+        case 'up':
+          interactionType = 'view'; // Positive engagement
+          interactionStrength = 0.2;
+          break;
+        case 'down':
+          interactionType = 'skip'; // Negative engagement
+          interactionStrength = 0.1;
+          break;
+        case 'left':
+          interactionType = 'skip'; // Negative engagement
+          interactionStrength = 0.05;
+          break;
+        case 'right':
+          interactionType = 'like'; // Positive engagement
+          interactionStrength = 0.8;
+          break;
+        default:
+          interactionType = 'view';
+          interactionStrength = 0.05;
+      }
+      
       const viewData = {
-        view_duration_seconds: 5.0, // Minimal view time for swipe
-        percentage_read: direction === 'up' ? 20 : 5, // Higher for up swipe (positive)
-        interaction_type: `swipe_${direction}`,
-        swipe_direction: direction,
+        read_time_seconds: 5.0, // Minimal view time for swipe
+        interaction_strength: interactionStrength,
+        interaction_type: interactionType,
         category: article.category || 'general',
         source: article.source?.name || 'unknown',
       };
@@ -237,7 +263,7 @@ export default function ArticlePager() {
       articleService.trackArticleView(article.id, viewData);
       embeddingService.trackArticleView(article.id, viewData);
       
-      console.log(`📱 Tracked swipe ${direction} for article: ${article.title.substring(0, 50)}...`);
+      console.log(`📱 Tracked swipe ${direction} (${interactionType}) for article: ${article.title.substring(0, 50)}...`);
     }
   }, [articles]);
 
@@ -277,10 +303,9 @@ export default function ArticlePager() {
   const handleArticleTap = useCallback((article) => {
     // Track the tap interaction as a more significant engagement
     const viewData = {
-      view_duration_seconds: 10.0, // Higher for tap interaction
-      percentage_read: 50, // Higher percentage for tap
-      interaction_type: 'tap_to_read',
-      swipe_direction: 'tap',
+      read_time_seconds: 10.0, // Higher for tap interaction
+      interaction_strength: 0.5, // Higher strength for tap
+      interaction_type: 'view', // Map tap_to_read to view
       category: article.category || 'general',
       source: article.source?.name || 'unknown',
     };
@@ -289,7 +314,7 @@ export default function ArticlePager() {
     articleService.trackArticleView(article.id, viewData);
     embeddingService.trackArticleView(article.id, viewData);
     
-    console.log(`📱 Tracked tap for article: ${article.title.substring(0, 50)}...`);
+    console.log(`📱 Tracked tap (view) for article: ${article.title.substring(0, 50)}...`);
     
     // Navigate to article detail screen
     navigation.navigate('ArticleDetail', { article });
@@ -430,17 +455,16 @@ export default function ArticlePager() {
           if (articles.length > 0) {
             const lastArticle = articles[articles.length - 1];
             const viewData = {
-              view_duration_seconds: 3.0,
-              percentage_read: 15,
-              interaction_type: 'swipe_end',
-              swipe_direction: 'end',
+              read_time_seconds: 3.0,
+              interaction_strength: 0.15,
+              interaction_type: 'view', // Map swipe_end to view
               category: lastArticle.category || 'general',
               source: lastArticle.source?.name || 'unknown',
             };
             
             articleService.trackArticleView(lastArticle.id, viewData);
             embeddingService.trackArticleView(lastArticle.id, viewData);
-            console.log(`📱 Tracked end swipe for article: ${lastArticle.title.substring(0, 50)}...`);
+            console.log(`📱 Tracked end swipe (view) for article: ${lastArticle.title.substring(0, 50)}...`);
           }
           
           // Load more articles when user reaches the end

@@ -11,7 +11,7 @@ import articleService from './src/services/articleService';
 import HorizontalFloatingNavBar from './src/components/HorizontalFloatingNavBar';
 
 // Import debug functions for development
-import './src/services/globalDebug';
+// import './src/services/globalDebug';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();

@@ -100,10 +100,9 @@ const ArticleDetail = () => {
       if (readingTime > 5) { // Only track if they spent more than 5 seconds
         const percentageRead = Math.round(Math.min(readingTime / 60 * 100, 100));
         const viewData = {
-          view_duration_seconds: readingTime,
-          percentage_read: percentageRead,
-          interaction_type: 'read_article',
-          swipe_direction: 'none',
+          read_time_seconds: readingTime,
+          interaction_strength: Math.min(percentageRead / 100, 1.0), // Convert percentage to 0-1 scale
+          interaction_type: 'view', // Map read_article to view
           category: article.category || 'general',
           source: article.source?.name || 'unknown',
         };
