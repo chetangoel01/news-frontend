@@ -125,12 +125,25 @@ class ArticleService {
 
   async trackArticleView(articleId, viewData = {}) {
     try {
-      // This is now handled by the embedding service locally
+      // Track view on backend
+      const response = await api.post(ENDPOINTS.ARTICLES.VIEW(articleId), viewData);
+      
+      // Also track locally for embedding service
       const embeddingService = require('./embeddingService').default;
       await embeddingService.trackArticleView(articleId, viewData);
-      return { tracked: true, updated_recommendations: false };
+      
+      return response.data;
     } catch (error) {
       console.error('Track article view error:', error);
+      
+      // Still track locally even if backend fails
+      try {
+        const embeddingService = require('./embeddingService').default;
+        await embeddingService.trackArticleView(articleId, viewData);
+      } catch (localError) {
+        console.error('Local view tracking also failed:', localError);
+      }
+      
       // Don't throw error for tracking failures
       return { tracked: false };
     }

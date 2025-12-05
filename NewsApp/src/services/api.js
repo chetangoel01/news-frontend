@@ -1,5 +1,4 @@
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { CURRENT_API_CONFIG } from '../config/api';
 
@@ -111,6 +110,7 @@ export const ENDPOINTS = {
   ARTICLES: {
     LIST: '/articles',
     DETAIL: (id) => `/articles/${id}`,
+    VIEW: (id) => `/articles/${id}/view`,
     LIKE: (id) => `/articles/${id}/like`,
     UNLIKE: (id) => `/articles/${id}/like`,
     SHARE: (id) => `/articles/${id}/share`,
